@@ -9,13 +9,14 @@ struct Data {
     
 }
 
-fn add(param: &Data) {
+fn calcu_late(param: &Data) {
     
     let product = param.a * param.b;
     let logarithm = f64::ln(product.into()); 
     let square_root = f64::sqrt(product.into()); 
     let hypotenuse = f64::hypot(param.a.into(), param.b.into());
-    println!("Product: {}", product);
+    println!("a: {} b: {}", param.a, param.b);
+    println!("a*b: {}", product);
     println!("Logarithm: {}", logarithm);
     println!("Square Root: {}", square_root);
     println!("Hypotenuse: {}", hypotenuse);
@@ -29,22 +30,24 @@ fn main() {
     let work3 = Data { a: 6.0, b: 8.0 };
     let work4 = Data { a: 20.0, b: 9.0 };
     // Initialize the thread pool
-    let pool = ThreadPool::new(3);
+    let pool = ThreadPool::new(2);
 
     // Submit the work to the pool
+    pool.execute(move || {
+        calcu_late(&work1);
+    });
+    pool.execute(move || {
+        calcu_late(&work2);
+    });
+    pool.execute(move || {
+        calcu_late(&work3);
+    });
+    pool.execute(move || {
+        calcu_late(&work4);
+    });
 
-    pool.execute(move || {
-        add(&work1);
-    });
-    pool.execute(move || {
-        add(&work2);
-    });
-    pool.execute(move || {
-        add(&work3);
-    });
-    pool.execute(move || {
-        add(&work4);
-    });
-    // Sleep for a while to allow the threads to finish (optional)
-    //thread::sleep(std::time::Duration::from_secs(3));
 }
+
+
+
+

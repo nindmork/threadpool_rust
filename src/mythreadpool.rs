@@ -1,11 +1,6 @@
 use std::thread;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
-
-struct Data {
-    a: f64,
-    b: f64,
-}
+use std::sync::{Arc, Mutex, Condvar};
 
 enum Task {
     Execute(Box<dyn FnOnce() + Send + 'static>),
@@ -15,6 +10,7 @@ enum Task {
 pub struct ThreadPool {
     workers: Vec<Worker>,
     sender: mpsc::Sender<Task>,
+    semaphore: Arc<(Mutex<usize>, Condvar)>,
 }
 
 struct Worker {
@@ -29,12 +25,13 @@ impl ThreadPool {
         let (sender, receiver) = mpsc::channel();
         let receiver = Arc::new(Mutex::new(receiver));
         let mut workers = Vec::with_capacity(size);
+        let semaphore = Arc::new((Mutex::new(0), Condvar::new()));
 
         for id in 0..size {
-            workers.push(Worker::new(id, Arc::clone(&receiver)));
+            workers.push(Worker::new(id, Arc::clone(&receiver), Arc::clone(&semaphore)));
         }
 
-        ThreadPool { workers, sender }
+        ThreadPool { workers, sender, semaphore }
     }
 
     pub fn execute<F>(&self, f: F)
@@ -42,16 +39,17 @@ impl ThreadPool {
         F: FnOnce() + Send + 'static,
     {
         let task = Task::Execute(Box::new(f));
-        self.sender.send(task).unwrap();
-    }
 
-   /* pub fn wait_all(&self) {
-        for worker in &self.workers {
-            if let Some(handle) = &worker.handle {
-                handle.join().unwrap();
-            }
+        let (lock, cvar) = &*self.semaphore;
+        let mut count = lock.lock().unwrap();
+
+        *count += 1;
+        self.sender.send(task).unwrap();
+
+        while *count > self.workers.len() {
+            count = cvar.wait(count).unwrap();
         }
-    }*/
+    }
 }
 
 impl Drop for ThreadPool {
@@ -68,11 +66,14 @@ impl Drop for ThreadPool {
     }
 }
 
-
 impl Worker {
-    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Task>>>) -> Worker {
+    fn new(
+        id: usize,
+        receiver: Arc<Mutex<mpsc::Receiver<Task>>>,
+        semaphore: Arc<(Mutex<usize>, Condvar)>,
+    ) -> Worker {
         let handle = thread::spawn(move || {
-            println!("Worker {} is created.", id);
+            println!("Execute with thread {}", id);
             loop {
                 let task = receiver.lock().unwrap().recv().unwrap();
 
@@ -84,11 +85,14 @@ impl Worker {
                         break;
                     }
                 }
+
+                let (lock, cvar) = &*semaphore;
+                let mut count = lock.lock().unwrap();
+                *count -= 1;
+                cvar.notify_one();
             }
         });
 
         Worker { id, handle: Some(handle) }
     }
 }
-
-
